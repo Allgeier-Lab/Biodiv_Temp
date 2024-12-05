@@ -15,4 +15,5 @@ temperature? Population size is 40 individuals.
 - __FigS7.png__: Results for Question 2 (PP). Population size is 80 individuals.
 - __FigS8.png__: Results for Question 2 (PPB). Population size is 20 individuals.
 - __FigS9.png__: Results for Question 2 (PPB). Population size is 80 individuals.
-- __FigS10.png__: Total excreted nutrients for each population size.
+- __FigS10.png__: PP and PPB with 95% confidence intervals for 40 individuals.
+- __FigS11.png__: Total excreted nutrients for each population size.
