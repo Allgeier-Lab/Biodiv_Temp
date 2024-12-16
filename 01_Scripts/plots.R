@@ -1,5 +1,6 @@
 # Load Packages
 library(tidyverse)
+library(dplyr)
 library(ggplot2)
 library(gridExtra)
 library(ggpmisc)
@@ -2234,7 +2235,208 @@ plot_ppb_H2_SF8(multi_species, 20, 0.085, 0.4, 0.08)
 # Supp. Fig. 9
 plot_ppb_H2(multi_species, 80, 0.027, 0.3, 0.02)
 
-# plot total excretion (Supp. Fig. 10)
+# Supp. Fig. 10
+plot_conf_int <- function(multi_species, num_indiv,
+                          opar = par(no.readonly = TRUE)) {
+
+  # calculate means for each treatment
+  dat_mean <- data.frame()
+  for(indiv in unique(multi_species$n_indiv)) {
+    for(temp in unique(multi_species$temperature)) {
+      dat <- filter(multi_species, n_indiv == indiv, temperature == temp)
+      dat$int <- interaction(dat$id, dat$behavior)
+      total_pp_sd <- aggregate(total_pp~int, dat, mean)
+      total_reef_pp_sd <- aggregate(total_reef_pp~int, dat, mean)
+      total_not_reef_pp_sd <- aggregate(total_not_reef_pp~int, dat, mean)
+      total_pppb_sd <- aggregate(total_pppb~int, dat, mean)
+      reef_pppb_sd <- aggregate(reef_pppb~int, dat, mean)
+      not_reef_pppb_sd <- aggregate(not_reef_pppb~int, dat, mean)
+
+      dat <- cbind(total_pp_sd, cbind(total_reef_pp_sd$total_reef_pp, total_not_reef_pp_sd$total_not_reef_pp,
+                                      total_pppb_sd$total_pppb, reef_pppb_sd$reef_pppb, not_reef_pppb_sd$not_reef_pppb,
+                                      indiv, temp))
+
+      dat_mean <- rbind(dat_mean, dat)
+    }
+  }
+
+  # calculate standard deviations for each treatment
+  dat_sd <- data.frame()
+  for(indiv in unique(multi_species$n_indiv)) {
+    for(temp in unique(multi_species$temperature)) {
+      dat <- filter(multi_species, n_indiv == indiv, temperature == temp)
+      dat$int <- interaction(dat$id, dat$behavior)
+      total_pp_sd <- aggregate(total_pp~int, dat, sd)
+      total_reef_pp_sd <- aggregate(total_reef_pp~int, dat, sd)
+      total_not_reef_pp_sd <- aggregate(total_not_reef_pp~int, dat, sd)
+      total_pppb_sd <- aggregate(total_pppb~int, dat, sd)
+      reef_pppb_sd <- aggregate(reef_pppb~int, dat, sd)
+      not_reef_pppb_sd <- aggregate(not_reef_pppb~int, dat, sd)
+
+      dat <- cbind(total_pp_sd, cbind(total_reef_pp_sd$total_reef_pp, total_not_reef_pp_sd$total_not_reef_pp,
+                                      total_pppb_sd$total_pppb, reef_pppb_sd$reef_pppb, not_reef_pppb_sd$not_reef_pppb,
+                                      indiv, temp))
+
+      dat_sd <- rbind(dat_sd, dat)
+    }
+  }
+
+  # rename variables
+  dat_mean <- dat_mean %>% rename(
+    total_reef_pp = V1,
+    total_not_reef_pp = V2,
+    total_pppb = V3,
+    reef_pppb = V4,
+    not_reef_pppb = V5
+  )
+  dat_sd <- dat_sd %>% rename(
+    total_reef_pp = V1,
+    total_not_reef_pp = V2,
+    total_pppb = V3,
+    reef_pppb = V4,
+    not_reef_pppb = V5
+  )
+
+  par(opar)
+  par(oma = c(6, 6, 1, 3), mar = c(0.5, 2.5, 2.5, 3))
+  default_margins <- par("mar")
+  default_cex_axis <- par("cex.axis")
+  margins <- c(0.5, 3.5, 2.5, 2)
+  nf <- layout(matrix(c(1, 4, 2, 5, 3, 6),
+                      ncol = 3, nrow = 2))
+
+
+  par(mar = margins)
+  # calculate 95% confidence interval using SD
+  dat_mean$lowerlim <- dat_mean$total_pp - 2*dat_sd$total_pp
+  dat_mean$upperlim <- dat_mean$total_pp + 2*dat_sd$total_pp
+  # plot mean +- CI
+  plot(total_pp~temp, filter(dat_mean, indiv == num_indiv), col = int, pch=16,
+       ylab = "", xlab = "", cex.axis = 1.75, xaxt = "n")
+  x <- filter(dat_mean, indiv == num_indiv)$temp
+  yH <- filter(dat_mean, indiv == num_indiv)$upperlim
+  yL <- filter(dat_mean, indiv == num_indiv)$lowerlim
+  arrows(x0 = x, y0 = yH, y1 = yL, angle = 0, length = 0, col = dat_mean$int)
+  # label axes
+  text(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.95, "npc", "user"),
+       substitute(paste(bold("A)"))),
+       xpd = NA, cex = 2)
+  title(main = substitute(paste(bold("ECOSYSTEM"))), cex.main = 2.5)
+  text(x = grconvertX(-0.15, "npc", "user"), y = grconvertY(0.5, "npc", "user"),
+       substitute(paste("Primary Production "~"(g"~m^-2~day^-1~")",
+                               sep = "")), xpd = NA,
+       srt = 90, cex = 2.3)
+  axis(1, at = c(18, 22, 26, 30, 34, 38, 40), cex.axis = 1.75)
+  par(mar = default_margins)
+
+  par(mar = margins)
+  dat_mean$lowerlim <- dat_mean$total_reef_pp - 2*dat_sd$total_reef_pp
+  dat_mean$upperlim <- dat_mean$total_reef_pp + 2*dat_sd$total_reef_pp
+  plot(total_reef_pp~temp, filter(dat_mean, indiv == num_indiv), col = int, pch=16,
+       ylab = "", xlab = "", cex.axis = 1.75, xaxt = "n")
+  x <- filter(dat_mean, indiv == num_indiv)$temp
+  yH <- filter(dat_mean, indiv == num_indiv)$upperlim
+  yL <- filter(dat_mean, indiv == num_indiv)$lowerlim
+  arrows(x0 = x, y0 = yH, y1 = yL, angle = 0, length = 0, col = dat_mean$int)
+  text(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.95, "npc", "user"),
+       substitute(paste(bold("B)"))),
+       xpd = NA, cex = 2)
+  axis(1, at = c(18, 22, 26, 30, 34, 38, 40), cex.axis = 1.75)
+  title(main = substitute(paste(bold("REEF"))), cex.main = 2.5)
+  par(mar = default_margins)
+
+  par(mar = margins)
+  dat_mean$lowerlim <- dat_mean$total_not_reef_pp - 2*dat_sd$total_not_reef_pp
+  dat_mean$upperlim <- dat_mean$total_not_reef_pp + 2*dat_sd$total_not_reef_pp
+  plot(total_not_reef_pp~temp, filter(dat_mean, indiv == num_indiv), col = int, pch=16,
+       ylab = "", xlab = "", cex.axis = 1.75, xaxt = "n")
+  x <- filter(dat_mean, indiv == num_indiv)$temp
+  yH <- filter(dat_mean, indiv == num_indiv)$upperlim
+  yL <- filter(dat_mean, indiv == num_indiv)$lowerlim
+  arrows(x0 = x, y0 = yH, y1 = yL, angle = 0, length = 0, col = dat_mean$int)
+  text(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.95, "npc", "user"),
+       substitute(paste(bold("C)"))),
+       xpd = NA, cex = 2)
+  axis(1, at = c(18, 22, 26, 30, 34, 38, 40), cex.axis = 1.75)
+  title(main = substitute(paste(bold("OPEN"))), cex.main = 2.5)
+  # place legend
+  ans <- legend(x = grconvertX(0.041, "npc", "user"), y = grconvertY(0.92, "npc", "user"),
+                legend = c(("Gr. Far"), ("Sq. Far"), ("Sq. Near"), ("Gr. Near")),
+                pch = c(16, 16, 16, 16), cex = 0.9, pt.cex = 2,
+                y.intersp = 0.6, x.intersp = 0.95, ncol = 2, xpd = NA,
+                text.width = c(0, 0), plot = F)
+  r <- ans$rect
+  legend(x = grconvertX(-0.15, "npc", "user"), y = grconvertY(0.98, "npc", "user"),
+         legend = c(("Gr. Far"), ("Sq. Far")),
+         col = c("black","#E0536B"),
+         pch = c(16, 16), pt.lwd = 3, pt.cex = 2, cex = 2,
+         y.intersp = 0.4, x.intersp = 0.1, ncol = 1, bty = "n", xpd = NA,
+         text.width = 0)
+  legend(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.98, "npc", "user"),
+         legend = c(("Gr Near"), ("Sq. Near")),
+         col = c("#62D04F", "#2197E6"),
+         pch = c(16, 16), pt.lwd = 3, pt.cex = 2, cex = 2,
+         y.intersp = 0.4, x.intersp = 0.1, ncol = 1, bty = "n", xpd = NA,
+         text.width = 0)
+  rect(r$left, r$top - r$h, r$left + r$w, r$top)
+  par(mar = default_margins)
+
+  par(mar = margins)
+  dat_mean$lowerlim <- dat_mean$total_pppb - 2*dat_sd$total_pppb
+  dat_mean$upperlim <- dat_mean$total_pppb + 2*dat_sd$total_pppb
+  plot(total_pppb~temp, filter(dat_mean, indiv == num_indiv), col = int, pch=16,
+       ylab = "", xlab = "", cex.axis = 1.75, xaxt = "n")
+  x <- filter(dat_mean, indiv == num_indiv)$temp
+  yH <- filter(dat_mean, indiv == num_indiv)$upperlim
+  yL <- filter(dat_mean, indiv == num_indiv)$lowerlim
+  arrows(x0 = x, y0 = yH, y1 = yL, angle = 0, length = 0, col = dat_mean$int)
+  text(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.95, "npc", "user"),
+       substitute(paste(bold("D)"))),
+       xpd = NA, cex = 2)
+  text(x = grconvertX(-0.15, "npc", "user"), y = grconvertY(0.5, "npc", "user"),
+       substitute(paste("PPB "~"(g"~m^-2~"Fish "~Biomass^-1~day^-1~")",
+               sep = "")), xpd = NA,
+       srt = 90, cex = 2.3)
+  axis(1, at = c(18, 22, 26, 30, 34, 38, 40), cex.axis = 1.75)
+  par(mar = default_margins)
+
+  par(mar = margins)
+  dat_mean$lowerlim <- dat_mean$reef_pppb - 2*dat_sd$reef_pppb
+  dat_mean$upperlim <- dat_mean$reef_pppb + 2*dat_sd$reef_pppb
+  plot(reef_pppb~temp, filter(dat_mean, indiv == num_indiv), col = int, pch=16,
+       ylab = "", xlab = "", cex.axis = 1.75, xaxt = "n")
+  x <- filter(dat_mean, indiv == num_indiv)$temp
+  yH <- filter(dat_mean, indiv == num_indiv)$upperlim
+  yL <- filter(dat_mean, indiv == num_indiv)$lowerlim
+  arrows(x0 = x, y0 = yH, y1 = yL, angle = 0, length = 0, col = dat_mean$int)
+  text(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.95, "npc", "user"),
+       substitute(paste(bold("E)"))),
+       xpd = NA, cex = 2)
+  axis(1, at = c(18, 22, 26, 30, 34, 38, 40), cex.axis = 1.75)
+  text(x = grconvertX(0.5, "npc", "user"), y = grconvertY(-0.1, "npc", "user"),
+       substitute(paste(bold("Temperature (°C)"))),
+       xpd = NA, cex = 2.6)
+  par(mar = default_margins)
+
+  par(mar = margins)
+  dat_mean$lowerlim <- dat_mean$not_reef_pppb - 2*dat_sd$not_reef_pppb
+  dat_mean$upperlim <- dat_mean$not_reef_pppb + 2*dat_sd$not_reef_pppb
+  plot(not_reef_pppb~temp, filter(dat_mean, indiv == num_indiv), col = int, pch=16,
+       ylab = "", xlab = "", cex.axis = 1.75, xaxt = "n")
+  x <- filter(dat_mean, indiv == num_indiv)$temp
+  yH <- filter(dat_mean, indiv == num_indiv)$upperlim
+  yL <- filter(dat_mean, indiv == num_indiv)$lowerlim
+  arrows(x0 = x, y0 = yH, y1 = yL, angle = 0, length = 0, col = dat_mean$int)
+  text(x = grconvertX(0.05, "npc", "user"), y = grconvertY(0.95, "npc", "user"),
+       substitute(paste(bold("F)"))),
+       xpd = NA, cex = 2)
+  axis(1, at = c(18, 22, 26, 30, 34, 38, 40), cex.axis = 1.75)
+  par(mar = default_margins)
+
+  par(opar)
+}
+
+# plot total excretion (Supp. Fig. 11)
 plot_excr_total <- function(all_data) {
 
   # set plot margins
