@@ -1,93 +1,52 @@
 ##--------------------------------------------##
-##    Sean Pierce Richards                    ##
-##    sprich@umich.edu                        ##
-##    community variation                     ##
+##    Author: Sean P. Richards                ##
+##    Coastal Ecology and Conservation Lab    ##
+##    University of Michigan                  ##
+##    mhessel@umich.edu                       ##
+##    www.github.com/mhesselbarth             ##
 ##--------------------------------------------##
 
-##                     ##
+#-------------------#
+# Purpose of Script #
+#-------------------#
+# Sobol sensitivity analysis with subset of parameters that showed sensitivity in
+# 02_results_local_SA.R
+# updated by Sean P. Richards
 
+#### Import libraries and data ####
 
-#### Load packages ####
-
-# library(remotes)
-# remotes::install_github(repo = "Allgeier-Lab/arrR", ref = "multi-species")
-
-library(arrR)
-# Esquivel, K. E., M. H. K. Hesselbarth, and J. E. Allgeier. 2022.
-# Mechanistic support for increased primary production around artificial reefs.
-# Ecological Applications 32:e2617.
-
-library(dplyr)
+# load packages #
+library(arrR) # remotes::install_github("Allgeier-Lab/arrR", ref = "development")
+library(boot)
+library(cowplot)
+library(ggnewscale)
+library(magrittr)
+library(progress)
+library(raster)
+library(sensitivity)
+library(suppoRt) # remotes::install_github("mhesselbarth/suppoRt")
+library(tgp)
 library(tidyverse)
-library(rslurm)
-library(MASS)
-library(moments)
-library(rstatix)
-library(plotrix)
-library(data.table)
 
-#### Setup experiment ####
-# prepare dataframe and run combinations
-input_df <- data.frame(pop_size = c(0), sp1=c(0), sp2=(0))
-colnames(input_df) <- c("pop_size", "sp1", "sp2")
-
-# determine max population size
-max_pop_size <- 80
-
-# create only 1 or 0 combinations
-for (i in seq(1, max_pop_size, by = 1)) {
-  input_df <- rbind(input_df, c(i, i, 0))
-  input_df <- rbind(input_df, c(i, 0, i))
-}
-# distill only 20, 40, and 80 population sizes
-input_df <- filter(input_df, pop_size == 20 | pop_size == 40 | pop_size == 80)
-
-# include temperature
-input_df$temperature <- 18
-temp_input_df <- input_df
-for (temper in c(22, 26, 30, 34, 38, 40)) {
-  temp_input_df$temperature <- temper
-  input_df <- rbind(input_df, temp_input_df)
-}
-
-# create replicates
-num_replicates <- 40
-input_df <- input_df[rep(seq_len(nrow(input_df)), each = num_replicates), ]
-
-#correct labeling
-rownames(input_df) <- 1:nrow(input_df)
-
-#add column of what replicate number we are on
-input_df$replicate <- seq(1, num_replicates, by = 1)
-input_df <- input_df %>% dplyr::rename(
-  species_ratio = sp1,
-  rep_num = replicate
-)
-
-# remove extraneous column from input_df
-input_df <- input_df[, -3]
-
-# establish boolean for swapping behavior
-input_df$swap <- FALSE
-temp_df <- input_df
-temp_df$swap <- TRUE
-input_df <- rbind(input_df, temp_df)
+library(future)
+library(future.batchtools)
+library(future.apply)
 
 # update model parameters, change how far fish move from reef
 parameters <- arrR::default_parameters
 
-  # aboveground maximum biomass
+# aboveground maximum biomass
 parameters$ag_biomass_max <- 500.0
-  # belowground maximum biomass
+# belowground maximum biomass
 parameters$bg_biomass_max <- 1200.0
-  # optimum temperature
+# optimum temperature
 parameters$resp_temp_optm <- c(36, 36)
-  # length-weight regression
+# length-weight regression
 parameters$pop_a <- c(0.03638739, 0.04696877)
 parameters$pop_b <- c(2.86568226, 2.73973755)
-  # movement extent
+# movement extent
 parameters$move_border <- c(5, 5)
-  # maximum body size
+# maximum body size
 parameters$pop_ldie <- c(41.5, 26.4)
 
 # use default starting values
@@ -95,6 +54,118 @@ starting_values <- arrR::default_starting
 starting_values$pop_mean_size <- c(9, 5.733)
 starting_values$pop_sd_size <- c(10, 6.37)
 
+#### Create parameter sets using Latin hyper cube ####
+
+# [1] "ag_gamma" "resp_slope" "resp_temp_max" "resp_temp_optm"
+# [5] "sgslough" "respint" "resptemplo"
+
+# ---- #
+
+# [1] ag_gamma: Layman et al. 2016
+# [2] resp_slope: Bioenergetics model Jake
+# [3] resp_temp_max: Bioenergetics model Jake
+# [4] resp_temp_optm: Bioenergetics model Jake
+
+# sample parameters #
+n <- 250
+
+set.seed(42)
+
+param_set_1 <- tgp::lhs(n = n, rect = matrix(data = c(
+
+  0.012015, 0.016685, # ag_gamma; Layman et al. 2016
+
+  -0.22, -0.18, # resp_slope; +-10%
+  37, 44, # resp_temp_max; +- 10%
+  32.4, 36, # resp_temp_optm; constrained -10%
+  0.00972, 0.01188, # resp_int; +- 10%
+  1.89, 2.31, # resp_temp_low; +- 10%
+  0.0009, 0.0011), # seagrass_slough; +- 10%
+
+  ncol = 2, byrow = TRUE))
+
+param_set_2 <- tgp::lhs(n = n, rect = matrix(data = c(
+
+  0.012015, 0.016685, # ag_gamma; Layman et al. 2016
+
+  -0.22, -0.18, # resp_slope; +-10%
+  37, 44, # resp_temp_max; +- 10%
+  32.4, 36, # resp_temp_optm; constrained -10%
+  0.00972, 0.01188, # resp_int; +- 10%
+  1.89, 2.31, # resp_temp_low; +- 10%
+  0.0009, 0.0011), # seagrass_slough; +- 10%
+
+
+  ncol = 2, byrow = TRUE))
+
+param_set_3 <- tgp::lhs(n = n, rect = matrix(data = c(
+
+  0.012015, 0.016685, # ag_gamma; Layman et al. 2016
+
+  -0.22, -0.18, # resp_slope; +-10%
+  40, 44, # resp_temp_max; constrained +10%
+  32.4, 39.6, # resp_temp_optm; +-10%
+  0.00972, 0.01188, # resp_int; +- 10%
+  1.89, 2.31, # resp_temp_low; +- 10%
+  0.0009, 0.0011), # seagrass_slough; +- 10%
+
+  ncol = 2, byrow = TRUE))
+
+param_set_4 <- tgp::lhs(n = n, rect = matrix(data = c(
+
+  0.012015, 0.016685, # ag_gamma; Layman et al. 2016
+
+  -0.22, -0.18, # resp_slope; +-10%
+  40, 44, # constrained +10%
+  32.4, 39.6, # resp_temp_optm; +-10%
+  0.00972, 0.01188, # resp_int; +- 10%
+  1.89, 2.31, # resp_temp_low; +- 10%
+  0.0009, 0.0011), # seagrass_slough; +- 10%
+
+  ncol = 2, byrow = TRUE))
+
+# create an instance of the class sobol
+model_sobol2007_RTM <- sensitivity::sobol2007(model = NULL,
+                                          X1 = data.frame(param_set_1),
+                                          X2 = data.frame(param_set_2),
+                                          nboot = 1000)
+model_sobol2007_RTO <- sensitivity::sobol2007(model = NULL,
+                                              X1 = data.frame(param_set_3),
+                                              X2 = data.frame(param_set_4),
+                                              nboot = 1000)
+
+
+# get parameter combinations from sobol model
+param_sampled_RTM <- purrr::map(seq_len(nrow(model_sobol2007_RTM$X)),
+                            function(i) as.numeric(model_sobol2007_RTM$X[i, ]))
+param_sampled_RTO <- purrr::map(seq_len(nrow(model_sobol2007_RTO$X)),
+                            function(i) as.numeric(model_sobol2007_RTO$X[i, ]))
+
+param_sampled_RTM_dataframe <- data.frame(ag_gamma = c(), resp_slope = c(),
+                                          resp_temp_max = c(), resp_temp_opt = c())
+param_sampled_RTO_dataframe <- data.frame(ag_gamma = c(), resp_slope = c(),
+                                          resp_temp_max = c(), resp_temp_opt = c())
+for(i in 1:length(param_sampled_RTM)) {
+  param_sampled_RTM_dataframe <- rbind(param_sampled_RTM_dataframe, param_sampled_RTM[[i]])
+  param_sampled_RTO_dataframe <- rbind(param_sampled_RTO_dataframe, param_sampled_RTO[[i]])
+}
+
+names(param_sampled_RTM_dataframe) <- c("ag_gamma", "resp_slope", "resp_temp_max", "resp_temp_opt",
+                                        "resp_int", "resp_temp_low", "seagrass_slough")
+names(param_sampled_RTO_dataframe) <- c("ag_gamma", "resp_slope", "resp_temp_max", "resp_temp_opt",
+                                        "resp_int", "resp_temp_low", "seagrass_slough")
+param_sampled_RTO_dataframe$pop_size <- 40
+param_sampled_RTO_dataframe$species_ratio <- 40
+param_sampled_RTM_dataframe$pop_size <- 40
+param_sampled_RTM_dataframe$species_ratio <- 40
+temp_input_df <- param_sampled_RTO_dataframe
+temp_input_df$species_ratio <- 0
+param_sampled_RTO_dataframe <- rbind(param_sampled_RTO_dataframe, temp_input_df)
+temp_input_df <- param_sampled_RTM_dataframe
+temp_input_df$species_ratio <- 0
+param_sampled_RTM_dataframe <- rbind(param_sampled_RTM_dataframe, temp_input_df)
+
+#### Set default arguments to run model ####
 
 ##### set up model conditions #####
 # one iterations equals 120 minutes
@@ -116,18 +187,10 @@ save_each <- (24 / (min_per_i / 60)) * days
 reef_matrix <- matrix(data = c(0, 0),
                       ncol = 2, byrow = TRUE)
 
-# update stable nutrient/detritus values
-stable_values <- get_req_nutrients(bg_biomass = starting_values$bg_biomass,
-                                   ag_biomass = starting_values$ag_biomass,
-                                   parameters = parameters)
-
-starting_values$nutrients_pool <- stable_values$nutrients_pool
-
-starting_values$detritus_pool <- stable_values$detritus_pool
-
 #### Run simulations ####
-foo <- function(pop_size, species_ratio, rep_num, temperature, swap,
-                class_width = 4) {
+foo_sobol <- function(pop_size, species_ratio, ag_gamma, resp_slope,
+                resp_temp_max, resp_temp_opt, resp_int, resp_temp_low, seagrass_slough,
+                class_width = 6) {
 
   # function to create distribution of species based on population size
   create_species_distribution <- function(pop_size, n_sp1) {
@@ -140,21 +203,6 @@ foo <- function(pop_size, species_ratio, rep_num, temperature, swap,
     }
 
     return(species_distribution)
-  }
-
-  # swap behaviors between species
-  swap_parameters <- function(parameters) {
-
-    # store original grunt behavior
-    temp <- parameters$pop_behav[1]
-
-    # assign grunts squirrelfish's behavior
-    parameters$pop_behav[1] = parameters$pop_behav[2]
-
-    # assign squirrelfish grunt's behavior
-    parameters$pop_behav[2] = temp
-
-    return(parameters)
   }
 
   # extract relevant data
@@ -188,15 +236,19 @@ foo <- function(pop_size, species_ratio, rep_num, temperature, swap,
     return(seafloor_temp)
   }
 
-  # swap behaviors
-  if (swap) {
-    parameters <- swap_parameters(parameters)
-  }
-
   # assign inputs as parameters
-  parameters$temperature <- temperature
+  parameters$temperature <- 26
   starting_values$pop_n <- pop_size
   species_distribution <- create_species_distribution(pop_size, species_ratio)
+
+  # assign parameters for sensitivity analysis
+  parameters$ag_gamma <- ag_gamma
+  parameters$resp_slope <- c(resp_slope, resp_slope)
+  parameters$resp_temp_optm <- c(resp_temp_opt, resp_temp_opt)
+  parameters$resp_temp_max <- c(resp_temp_max, resp_temp_max)
+  parameters$resp_intercept <- c(resp_int, resp_int)
+  parameters$resp_temp_low <- c(resp_temp_low, resp_temp_low)
+  parameters$seagrass_slough <- seagrass_slough
 
   # create seafloor
   input_seafloor <- setup_seafloor(dimensions = c(50, 50), grain = 1,
@@ -271,7 +323,7 @@ foo <- function(pop_size, species_ratio, rep_num, temperature, swap,
   # divide by reef area (circle, excluding reef cell)
   reef_pp_df[, c("reef_ag_production", "reef_bg_production",
                  "total_reef_pp")] <- reef_pp_df[, c("reef_ag_production", "reef_bg_production",
-                                                          "total_reef_pp")]/(80)
+                                                     "total_reef_pp")]/(80)
 
   # calculate primary production away from reef using circle
   dummy_result <- result
@@ -331,9 +383,7 @@ foo <- function(pop_size, species_ratio, rep_num, temperature, swap,
 
   final_data$n_indiv <- pop_size
   final_data$gs_ratio <- species_ratio / pop_size
-  final_data$replicate_num <- rep_num
-  final_data$temperature <- temperature
-  final_data$swap <- swap
+  final_data$temperature <- 26
 
   final_data <- filter(final_data, timestep == max(final_data$timestep))
 
@@ -357,42 +407,45 @@ foo <- function(pop_size, species_ratio, rep_num, temperature, swap,
   final_data <- cbind(final_data, sum(filter(result$fishpop, timestep == max_i)$died_background))
 
   final_data <- final_data %>% rename(
-     natural_deaths = `sum(filter(result$fishpop, timestep == max_i)$died_background)`,
-     starvation_deaths = `sum(filter(result$fishpop, timestep == max_i)$died_consumption)`
+    natural_deaths = `sum(filter(result$fishpop, timestep == max_i)$died_background)`,
+    starvation_deaths = `sum(filter(result$fishpop, timestep == max_i)$died_consumption)`
   )
 
   print("DONE")
-  return(final_data)
+  return(cbind(final_data, ag_gamma,
+                resp_slope,
+               resp_temp_opt, resp_temp_max, resp_int, resp_temp_low, seagrass_slough))
 }
+
 
 #### Submit to HPC model ####
 
-globals <- c("reef_matrix", "starting_values", "parameters",
+globals_sobol <- c("reef_matrix", "starting_values", "parameters",
              "max_i", "min_per_i", "seagrass_each", "save_each")
 
 # run 'file.path(R.home("bin"), "Rscript")' on HPC to find correct path for rscript
 rscript_path <- "/sw/pkgs/arc/stacks/gcc/10.3.0/R/4.2.0/lib64/R/bin/Rscript"
 
+input_df <- param_sampled_RTM_dataframe
+#input_df <- param_sampled_RTO_dataframe
+
 # create .sh script
-sbatch_inter <- rslurm::slurm_apply(f = foo, params = input_df,
-                                    global_objects = globals, jobname = "multi_species",
-                                    nodes = nrow(input_df), cpus_per_node = 1,
-                                    slurm_options = list("account" = "jeallg0",
-                                                         "partition" = "standard",
-                                                         "time" = "00:30:00", ## hh:mm::ss
-                                                         "mem-per-cpu" = "7G"),
-                                    pkgs = c("arrR", "dplyr", "tidyverse", "data.table", "rslurm"),
-                                    rscript_path = rscript_path,
-                                    submit = FALSE)
+sbatch_sobolRTM <- rslurm::slurm_apply(f = foo_sobol, params = input_df,
+                                       global_objects = globals_sobol, jobname = "sens_sobolRTM",
+                                       nodes = nrow(input_df), cpus_per_node = 1,
+                                       slurm_options = list("account" = "jeallg0",
+                                                            "partition" = "standard",
+                                                            "time" = "00:30:00", ## hh:mm::ss
+                                                            "mem-per-cpu" = "7G"),
+                                       pkgs = c("arrR", "dplyr", "tidyverse", "data.table", "rslurm"),
+                                       rscript_path = rscript_path,
+                                       submit = FALSE)
 
 #### Results as list ####
-multi_species <- rslurm::get_slurm_out(sbatch_inter, outtype = "raw")
-multi_species <- rbindlist(multi_species)
-multi_species <- as.data.frame(multi_species)
+sens_sobolRTM <- as.data.frame(rbindlist(rslurm::get_slurm_out(sbatch_sobolRTM, outtype = "raw")))
+sens_sobolRTO <- as.data.frame(rbindlist(rslurm::get_slurm_out(sbatch_sobolRTO, outtype = "raw")))
 
-# create identifiers for statistical analyses
-multi_species$id <- "G"
-multi_species[multi_species$gs_ratio == 0,]$id <- "S"
-multi_species$behavior <- "F"
-multi_species[multi_species$id == "G" & multi_species$swap,]$behavior <- "R"
-multi_species[multi_species$id == "S" & !multi_species$swap,]$behavior <- "R"
+sens_sobol <- rbind(sens_sobolRTM, sens_sobolRTO)
+write.csv(sens_sobol, "global_sobol_SA_output.csv")
+write.csv(sens_sobolRTM, "sobol_output_RTM.csv")
+write.csv(sens_sobolRTO, "sobol_output_RTO.csv")
