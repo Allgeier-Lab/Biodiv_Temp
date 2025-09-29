@@ -1,9 +1,9 @@
 ##--------------------------------------------##
 ##    Author: Sean P. Richards                ##
+##            Maximilian H. K. Hesselbarth    ##
 ##    Coastal Ecology and Conservation Lab    ##
 ##    University of Michigan                  ##
-##    mhessel@umich.edu                       ##
-##    www.github.com/mhesselbarth             ##
+##    sprich@umich.edu                        ##
 ##--------------------------------------------##
 
 #-------------------#
